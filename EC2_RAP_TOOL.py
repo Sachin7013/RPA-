@@ -8,11 +8,17 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
-# Create evidence folder
-EVIDENCE_FOLDER = "evidence"
-if not os.path.exists(EVIDENCE_FOLDER):
-    os.makedirs(EVIDENCE_FOLDER)
-    print(f"Created evidence folder: {EVIDENCE_FOLDER}")
+# Create evidence folders for different EC2 components
+BASE_EVIDENCE_FOLDER = "evidence"
+EC2_DASHBOARD_FOLDER = os.path.join(BASE_EVIDENCE_FOLDER, "ec2_dashboard")
+EC2_INSTANCES_FOLDER = os.path.join(BASE_EVIDENCE_FOLDER, "ec2_instances")
+
+# Create all necessary folders
+folders_to_create = [BASE_EVIDENCE_FOLDER, EC2_DASHBOARD_FOLDER, EC2_INSTANCES_FOLDER]
+for folder in folders_to_create:
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+        print(f"Created evidence folder: {folder}")
 
 # CONFIG - change these
 AWS_CONSOLE = "https://console.aws.amazon.com/"
@@ -39,21 +45,62 @@ def log_step(step_name, status="success", details=None):
     })
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {step_name}: {status}")
 
-def take_screenshot(page, name, description="", full_page=False):
-    """Take screenshot and save to evidence folder"""
-    screenshot_path = os.path.join(EVIDENCE_FOLDER, f"{timestamp}_{name}.png")
+def take_screenshot(page, name, description="", full_page=False, folder_type="general"):
+    """Take screenshot and save to appropriate evidence folder"""
+    # Determine which folder to use based on the type
+    if folder_type == "dashboard":
+        target_folder = EC2_DASHBOARD_FOLDER
+    elif folder_type == "instances":
+        target_folder = EC2_INSTANCES_FOLDER
+    else:
+        target_folder = BASE_EVIDENCE_FOLDER
+    
+    screenshot_path = os.path.join(target_folder, f"{timestamp}_{name}.png")
     try:
         page.screenshot(path=screenshot_path, full_page=full_page)
         evidence_log["screenshots"].append({
             "name": name,
             "path": screenshot_path,
             "timestamp": datetime.now().isoformat(),
-            "description": description
+            "description": description,
+            "folder_type": folder_type
         })
         print(f"Screenshot saved: {screenshot_path}")
         return screenshot_path
     except Exception as e:
         log_step(f"Screenshot {name}", "failed", str(e))
+        return None
+
+def take_element_screenshot(page, selector, name, description="", folder_type="instances"):
+    """Take screenshot of a specific element"""
+    # Determine which folder to use based on the type
+    if folder_type == "dashboard":
+        target_folder = EC2_DASHBOARD_FOLDER
+    elif folder_type == "instances":
+        target_folder = EC2_INSTANCES_FOLDER
+    else:
+        target_folder = BASE_EVIDENCE_FOLDER
+    
+    screenshot_path = os.path.join(target_folder, f"{timestamp}_{name}.png")
+    try:
+        element = page.locator(selector).first
+        if element.count() > 0:
+            element.screenshot(path=screenshot_path)
+            evidence_log["screenshots"].append({
+                "name": name,
+                "path": screenshot_path,
+                "timestamp": datetime.now().isoformat(),
+                "description": description,
+                "folder_type": folder_type,
+                "element_selector": selector
+            })
+            print(f"Element screenshot saved: {screenshot_path}")
+            return screenshot_path
+        else:
+            print(f"Element not found for screenshot: {selector}")
+            return None
+    except Exception as e:
+        log_step(f"Element screenshot {name}", "failed", str(e))
         return None
 
 # Validate credentials
@@ -78,7 +125,7 @@ try:
         log_step("Navigating to AWS Console", "info")
         page.goto(AWS_CONSOLE)
         page.wait_for_load_state('networkidle')
-        take_screenshot(page, "01_aws_console_home", "AWS Console homepage")
+        take_screenshot(page, "01_aws_console_home", "AWS Console homepage", folder_type="dashboard")
         time.sleep(2)
 
         # Step 2: Click sign in flow (selectors may change; adjust if needed)
@@ -200,7 +247,7 @@ try:
             log_step("EC2 Console loaded", "success")
             
             # Take screenshot of EC2 dashboard
-            take_screenshot(page, "07_ec2_dashboard", "EC2 Console dashboard")
+            take_screenshot(page, "07_ec2_dashboard", "EC2 Console dashboard", folder_type="dashboard")
             
             # Navigate to EC2 Instances specifically
             log_step("Navigating to EC2 Instances", "info")
@@ -272,10 +319,10 @@ try:
                 time.sleep(2)  # Additional wait for full rendering
                 
                 # Take screenshot of instances page - full page first
-                take_screenshot(page, "08_ec2_instances_full", "EC2 Instances page (full page)", full_page=True)
+                take_screenshot(page, "08_ec2_instances_full", "EC2 Instances page (full page)", full_page=True, folder_type="instances")
                 
                 # Take a viewport screenshot for better visibility of current content
-                take_screenshot(page, "09_ec2_instances_viewport", "EC2 Instances page (viewport)", full_page=False)
+                take_screenshot(page, "09_ec2_instances_viewport", "EC2 Instances page (viewport)", full_page=False, folder_type="instances")
                 
                 # Try to take a more focused screenshot of just the instances table/content area
                 try:
@@ -286,6 +333,7 @@ try:
                         "[data-testid*='table']",
                         ".awsui-table",
                         ".instances-table",
+                        "table",
                         "[role='table']",
                         ".ec2-instances-table",
                         "#instances",
@@ -296,37 +344,31 @@ try:
                         "[role='main']"
                     ]
                     
+                    # Try to capture the instances table
                     table_found = False
                     for selector in table_selectors:
                         try:
                             elements = page.locator(selector)
                             if elements.count() > 0:
-                                # Take screenshot of the element
-                                element = elements.first
-                                table_screenshot_path = os.path.join(EVIDENCE_FOLDER, f"{timestamp}_10_ec2_instances_table.png")
-                                element.screenshot(path=table_screenshot_path)
-                                evidence_log["screenshots"].append({
-                                    "name": "10_ec2_instances_table",
-                                    "path": table_screenshot_path,
-                                    "timestamp": datetime.now().isoformat(),
-                                    "description": f"EC2 Instances table/content area (selector: {selector})"
-                                })
-                                log_step("EC2 instances table screenshot taken", "success", f"Using selector: {selector}")
-                                print(f"Table screenshot saved: {table_screenshot_path}")
-                                table_found = True
-                                break
+                                # Take screenshot of the element using the new function
+                                screenshot_path = take_element_screenshot(
+                                    page, 
+                                    selector, 
+                                    "10_ec2_instances_table", 
+                                    f"EC2 Instances table/content area (selector: {selector})",
+                                    folder_type="instances"
+                                )
+                                if screenshot_path:
+                                    log_step("EC2 instances table screenshot", "success", f"Used selector: {selector}")
+                                    table_found = True
+                                    break
                         except Exception as e:
-                            log_step("Table selector attempt", "info", f"Failed selector {selector}: {str(e)}")
+                            log_step("Table screenshot attempt", "info", f"Selector {selector} failed: {str(e)}")
                             continue
                     
                     if not table_found:
-                        log_step("EC2 instances table not found", "info", "All table selectors failed")
-                        
-                except Exception as e:
-                    log_step("Focused instances screenshot", "failed", str(e))
-                
-                # Additional check - try to scroll and capture if there are instances
-                try:
+                        log_step("Table screenshot", "info", "Could not capture focused table screenshot")
+                    
                     # Check if there are any instances visible
                     instance_rows = page.locator("tr, .instance-row, [data-testid*='instance']").count()
                     if instance_rows > 0:
@@ -337,7 +379,7 @@ try:
                         time.sleep(1)
                         
                         # Take another screenshot after scrolling
-                        take_screenshot(page, "11_ec2_instances_scrolled", "EC2 Instances after scroll to top")
+                        take_screenshot(page, "11_ec2_instances_scrolled", "EC2 Instances after scroll to top", folder_type="instances")
                     else:
                         log_step("No EC2 instances found", "info", "No instances visible on the page")
                         
@@ -351,27 +393,28 @@ try:
                 
         except Exception as e:
             log_step("EC2 navigation", "failed", str(e))
-            take_screenshot(page, "07_ec2_failed", "Failed to load EC2 console")
+            take_screenshot(page, "07_ec2_failed", "Failed to load EC2 console", folder_type="dashboard")
 
         # Final evidence collection
         evidence_log["end_time"] = datetime.now().isoformat()
         evidence_log["status"] = "completed"
         
         # Save evidence log
-        log_file = os.path.join(EVIDENCE_FOLDER, f"{timestamp}_evidence_log.json")
+        log_file = os.path.join(BASE_EVIDENCE_FOLDER, f"{timestamp}_evidence_log.json")
         with open(log_file, 'w') as f:
             json.dump(evidence_log, f, indent=2)
         print(f"\nEvidence log saved: {log_file}")
         
         print(f"\n" + "="*60)
         print("AWS RPA COMPLETED SUCCESSFULLY")
-        print(f"Evidence folder: {EVIDENCE_FOLDER}")
+        print(f"Evidence folder: {BASE_EVIDENCE_FOLDER}")
         print(f"Screenshots taken: {len(evidence_log['screenshots'])}")
         print(f"Session ID: {timestamp}")
         print("="*60)
 
-        # Keep browser open for manual inspection
-        input("\nPress Enter to close the browser...")
+        # Keep browser open for 3 seconds for final screenshot capture
+        print("\nCollection completed successfully! Closing browser in 3 seconds...")
+        time.sleep(3)
         browser.close()
         
 except Exception as e:

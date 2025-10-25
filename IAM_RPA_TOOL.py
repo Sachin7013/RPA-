@@ -9,11 +9,18 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
-# Create evidence folder
-EVIDENCE_FOLDER = "iam_evidence"
-if not os.path.exists(EVIDENCE_FOLDER):
-    os.makedirs(EVIDENCE_FOLDER)
-    print(f"Created evidence folder: {EVIDENCE_FOLDER}")
+# Create evidence folders for different IAM components
+BASE_EVIDENCE_FOLDER = "iam_evidence"
+IAM_USERS_FOLDER = os.path.join(BASE_EVIDENCE_FOLDER, "users")
+IAM_ROLES_FOLDER = os.path.join(BASE_EVIDENCE_FOLDER, "roles") 
+IAM_GROUPS_FOLDER = os.path.join(BASE_EVIDENCE_FOLDER, "groups")
+
+# Create all necessary folders
+folders_to_create = [BASE_EVIDENCE_FOLDER, IAM_USERS_FOLDER, IAM_ROLES_FOLDER, IAM_GROUPS_FOLDER]
+for folder in folders_to_create:
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+        print(f"Created evidence folder: {folder}")
 
 # CONFIG - change these
 AWS_CONSOLE = "https://console.aws.amazon.com/"
@@ -45,16 +52,27 @@ def log_step(step_name, status="success", details=None):
     })
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {step_name}: {status}")
 
-def take_screenshot(page, name, description="", full_page=False):
-    """Take screenshot and save to evidence folder"""
-    screenshot_path = os.path.join(EVIDENCE_FOLDER, f"{timestamp}_{name}.png")
+def take_screenshot(page, name, description="", full_page=False, folder_type="general"):
+    """Take screenshot and save to appropriate evidence folder"""
+    # Determine which folder to use based on the type
+    if folder_type == "users":
+        target_folder = IAM_USERS_FOLDER
+    elif folder_type == "roles":
+        target_folder = IAM_ROLES_FOLDER
+    elif folder_type == "groups":
+        target_folder = IAM_GROUPS_FOLDER
+    else:
+        target_folder = BASE_EVIDENCE_FOLDER
+    
+    screenshot_path = os.path.join(target_folder, f"{timestamp}_{name}.png")
     try:
         page.screenshot(path=screenshot_path, full_page=full_page)
         evidence_log["screenshots"].append({
             "name": name,
             "path": screenshot_path,
             "timestamp": datetime.now().isoformat(),
-            "description": description
+            "description": description,
+            "folder_type": folder_type
         })
         print(f"Screenshot saved: {screenshot_path}")
         return screenshot_path
@@ -62,9 +80,19 @@ def take_screenshot(page, name, description="", full_page=False):
         log_step(f"Screenshot {name}", "failed", str(e))
         return None
 
-def take_element_screenshot(page, selector, name, description=""):
+def take_element_screenshot(page, selector, name, description="", folder_type="general"):
     """Take screenshot of a specific element"""
-    screenshot_path = os.path.join(EVIDENCE_FOLDER, f"{timestamp}_{name}.png")
+    # Determine which folder to use based on the type
+    if folder_type == "users":
+        target_folder = IAM_USERS_FOLDER
+    elif folder_type == "roles":
+        target_folder = IAM_ROLES_FOLDER
+    elif folder_type == "groups":
+        target_folder = IAM_GROUPS_FOLDER
+    else:
+        target_folder = BASE_EVIDENCE_FOLDER
+    
+    screenshot_path = os.path.join(target_folder, f"{timestamp}_{name}.png")
     try:
         element = page.locator(selector).first
         if element.count() > 0:
@@ -133,10 +161,10 @@ def collect_iam_users(page):
         time.sleep(3)
         
         # Take full page screenshot of users
-        take_screenshot(page, "iam_users_full", "IAM Users page (full page)", full_page=True)
+        take_screenshot(page, "iam_users_full", "IAM Users page (full page)", full_page=True, folder_type="users")
         
         # Take viewport screenshot
-        take_screenshot(page, "iam_users_viewport", "IAM Users page (viewport)", full_page=False)
+        take_screenshot(page, "iam_users_viewport", "IAM Users page (viewport)", full_page=False, folder_type="users")
         
         # Try to capture the users table specifically
         table_selectors = [
@@ -195,10 +223,10 @@ def collect_iam_groups(page):
         time.sleep(3)
         
         # Take full page screenshot of groups
-        take_screenshot(page, "iam_groups_full", "IAM Groups page (full page)", full_page=True)
+        take_screenshot(page, "iam_groups_full", "IAM Groups page (full page)", full_page=True, folder_type="groups")
         
         # Take viewport screenshot
-        take_screenshot(page, "iam_groups_viewport", "IAM Groups page (viewport)", full_page=False)
+        take_screenshot(page, "iam_groups_viewport", "IAM Groups page (viewport)", full_page=False, folder_type="groups")
         
         # Try to capture the groups table specifically
         table_selectors = [
@@ -257,10 +285,10 @@ def collect_iam_roles(page):
         time.sleep(3)
         
         # Take full page screenshot of roles
-        take_screenshot(page, "iam_roles_full", "IAM Roles page (full page)", full_page=True)
+        take_screenshot(page, "iam_roles_full", "IAM Roles page (full page)", full_page=True, folder_type="roles")
         
         # Take viewport screenshot
-        take_screenshot(page, "iam_roles_viewport", "IAM Roles page (viewport)", full_page=False)
+        take_screenshot(page, "iam_roles_viewport", "IAM Roles page (viewport)", full_page=False, folder_type="roles")
         
         # Try to capture the roles table specifically
         table_selectors = [
@@ -328,7 +356,7 @@ try:
         log_step("Navigating to AWS Console", "info")
         page.goto(AWS_CONSOLE)
         page.wait_for_load_state('networkidle')
-        take_screenshot(page, "01_aws_console_home", "AWS Console homepage")
+        take_screenshot(page, "01_aws_console_home", "AWS Console homepage", folder_type="general")
         time.sleep(2)
 
         # Step 2: Click sign in flow (selectors may change; adjust if needed)
@@ -396,7 +424,7 @@ try:
             log_step("IAM Console loaded", "success")
             
             # Take screenshot of IAM dashboard
-            take_screenshot(page, "02_iam_dashboard", "IAM Console dashboard")
+            take_screenshot(page, "02_iam_dashboard", "IAM Console dashboard", folder_type="general")
             
             # Collect IAM Users
             log_step("Starting IAM data collection", "info")
@@ -429,21 +457,21 @@ try:
                 
         except Exception as e:
             log_step("IAM navigation", "failed", str(e))
-            take_screenshot(page, "02_iam_failed", "Failed to load IAM console")
+            take_screenshot(page, "02_iam_failed", "Failed to load IAM console", folder_type="general")
 
         # Final evidence collection
         evidence_log["end_time"] = datetime.now().isoformat()
         evidence_log["status"] = "completed"
         
         # Save evidence log
-        log_file = os.path.join(EVIDENCE_FOLDER, f"{timestamp}_iam_evidence_log.json")
+        log_file = os.path.join(BASE_EVIDENCE_FOLDER, f"{timestamp}_iam_evidence_log.json")
         with open(log_file, 'w') as f:
             json.dump(evidence_log, f, indent=2)
         print(f"\nIAM Evidence log saved: {log_file}")
         
         print(f"\n" + "="*60)
         print("AWS IAM RPA COMPLETED SUCCESSFULLY")
-        print(f"Evidence folder: {EVIDENCE_FOLDER}")
+        print(f"Evidence folder: {BASE_EVIDENCE_FOLDER}")
         print(f"Screenshots taken: {len(evidence_log['screenshots'])}")
         print(f"IAM Users found: {len(evidence_log['iam_data']['users'])}")
         print(f"IAM Groups found: {len(evidence_log['iam_data']['groups'])}")
@@ -451,8 +479,9 @@ try:
         print(f"Session ID: {timestamp}")
         print("="*60)
 
-        # Keep browser open for manual inspection
-        input("\nPress Enter to close the browser...")
+        # Keep browser open for 3 seconds for final screenshot capture
+        print("\nIAM collection completed successfully! Closing browser in 3 seconds...")
+        time.sleep(3)
         browser.close()
         
 except Exception as e:
@@ -462,7 +491,7 @@ except Exception as e:
     evidence_log["error"] = str(e)
     
     # Save evidence log even on failure
-    log_file = os.path.join(EVIDENCE_FOLDER, f"{timestamp}_iam_evidence_log.json")
+    log_file = os.path.join(BASE_EVIDENCE_FOLDER, f"{timestamp}_iam_evidence_log.json")
     with open(log_file, 'w') as f:
         json.dump(evidence_log, f, indent=2)
     
